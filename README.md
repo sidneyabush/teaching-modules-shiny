@@ -62,7 +62,10 @@ The `1_Data_Harmonization.R` script processes the raw chemistry and discharge da
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
 =======
@@ -75,6 +78,9 @@ source("1_Data_Harmonization.R")
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -96,7 +102,10 @@ source("1_Data_Harmonization.R")
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 - Snow fraction metrics
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
 =======
