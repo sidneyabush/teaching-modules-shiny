@@ -1,0 +1,30 @@
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Data files (downloaded from Google Drive)
+data/*.csv
+data/*.xlsx
+data/*.xls
+data/*.rds
+data/*.RData
+!data/.gitkeep
+!data/README.md
+
+# Shiny
+rsconnect/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Authentication tokens
+.httr-oauth
+.secrets
+
+# IDE
+.vscode/
+.idea/
