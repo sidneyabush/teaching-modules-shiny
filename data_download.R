@@ -81,8 +81,24 @@ download_specific_file <- function(file_path, local_path = "data") {
   )
 }
 
+download_root_file <- function(file_name, local_path = "data") {
+  items <- drive_ls(as_id(gdrive_folder_id))
+  file_match <- items[items$name == file_name, ]
+
+  if (nrow(file_match) == 0) {
+    stop(paste0("File not found in root: ", file_name))
+  }
+
+  drive_download(
+    file = as_id(file_match$id[1]),
+    path = file.path(local_path, file_name),
+    overwrite = TRUE
+  )
+}
+
 # Download specific files
 download_specific_file("Master_Chemistry/20260105_masterdata_chem.csv")
+download_root_file("20260106_masterdata_discharge.csv")
 
 # To download ALL files recursively, uncomment:
 # download_files_recursive(gdrive_folder_id)
