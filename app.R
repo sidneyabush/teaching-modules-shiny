@@ -1,29 +1,133 @@
 # Teaching Modules Shiny App
 
-if (!require("librarian")) {
-  options(repos = c(CRAN = "https://cloud.r-project.org"))
-  install.packages("librarian")
-}
-librarian::shelf(shiny, dplyr, ggplot2, leaflet, plotly)
+suppressPackageStartupMessages({
+  if (!require("librarian")) {
+    options(repos = c(CRAN = "https://cloud.r-project.org"))
+    install.packages("librarian")
+  }
+  librarian::shelf(shiny, bslib, dplyr, ggplot2, leaflet, plotly)
+})
 
 data_path <- "/Users/sidneybush/Library/CloudStorage/Box-Box/Sidney_Bush/CUAHSI-teaching-modules-shiny/data"
 
-# UI
-ui <- navbarPage(
-  title = "River Hydrology Teaching Module",
+# Define color palette - earth-toned scheme
+module_colors <- c(
+  "primary"   = "#6b9bd1",  # soft blue
+  "secondary" = "#5a7fa8",  # deeper blue
+  "success"   = "#7fb069",  # sage green
+  "danger"    = "#d67e7e",  # soft red/coral
+  "warning"   = "#e6c79c"   # warm tan
+)
 
-  # Overview Tab
-  tabPanel("Overview",
-    fluidPage(
-      h2("Teaching Module: River Hydrology and Watershed Controls"),
-      br(),
-      fluidRow(
-        column(6,
-          h3("Dataset Overview"),
-          tableOutput("overview_table")
-        ),
-        column(6,
-          h3("About This Module"),
+# UI
+ui <- page_navbar(
+  title = "River Hydrology Teaching Module",
+  theme = bs_theme(
+    base_font = font_google("Work Sans"),
+    bg = "#fefcfb",
+    fg = "#2d2926",
+    navbar_bg = "#ffffff",
+    navbar_fg = "#2d2926",
+    primary = "#6b9bd1",
+    secondary = "#5a7fa8",
+    success = "#7fb069",
+    danger = "#d67e7e",
+    "card-bg" = "#ffffff",
+    "card-border-color" = "#d4e3f0"
+  ),
+
+  header = tags$head(
+    tags$style(HTML("
+      body {
+        background: #fefcfb !important;
+        font-family: 'Work Sans', sans-serif !important;
+      }
+
+      #map, .leaflet-container {
+        background: #ffffff !important;
+      }
+
+      .card {
+        border: 1px solid #d4e3f0 !important;
+        box-shadow: 0 4px 20px rgba(107,155,209,0.08) !important;
+        border-radius: 12px !important;
+        background: #ffffff !important;
+      }
+
+      .card-header {
+        background: #f5f9fc !important;
+        border-bottom: 1px solid #d4e3f0 !important;
+        color: #2d2926 !important;
+        font-weight: 600 !important;
+        border-radius: 12px 12px 0 0 !important;
+      }
+
+      .bslib-value-box {
+        border: 1px solid #d4e3f0 !important;
+        box-shadow: 0 4px 20px rgba(107,155,209,0.08) !important;
+        border-radius: 12px !important;
+        background: #ffffff !important;
+      }
+
+      .sidebar {
+        background: #ffffff !important;
+        border: 1px solid #d4e3f0 !important;
+        box-shadow: 0 4px 20px rgba(107,155,209,0.08) !important;
+        border-radius: 12px !important;
+      }
+
+      .navbar {
+        box-shadow: 0 2px 8px rgba(107,155,209,0.1) !important;
+        background-color: #ffffff !important;
+        border-bottom: 1px solid #d4e3f0 !important;
+      }
+
+      .nav-link.active {
+        color: #6b9bd1 !important;
+        border-bottom: 2px solid #6b9bd1 !important;
+      }
+
+      .btn-primary {
+        background-color: #6b9bd1 !important;
+        border-color: #6b9bd1 !important;
+        border-radius: 8px !important;
+      }
+
+      .card, .btn, .bslib-value-box {
+        transition: all 0.3s ease !important;
+      }
+    "))
+  ),
+
+  # Overview Tab with Map
+  nav_panel(
+    "Overview",
+    layout_sidebar(
+      sidebar = sidebar(
+        width = 300,
+        h4("Dataset Overview"),
+        tableOutput("overview_table"),
+        hr(),
+        h4("Map Controls"),
+        checkboxGroupInput("map_lter", "LTER Sites:",
+                         choices = NULL,
+                         selected = NULL),
+        checkboxInput("map_show_complete", "Show only complete data sites",
+                     value = TRUE)
+      ),
+
+      layout_columns(
+        col_widths = c(12),
+        card(
+          card_header("Study Sites Across North America"),
+          leafletOutput("site_map", height = 600)
+        )
+      ),
+
+      layout_columns(
+        col_widths = c(12),
+        card(
+          card_header("About This Module"),
           p("This interactive module explores river hydrology metrics and their relationship
             to watershed characteristics across North American rivers."),
           br(),
@@ -34,75 +138,54 @@ ui <- navbarPage(
             tags$li(strong("Recession Curve Slope (RCS):"),
                    "Describes how quickly discharge decreases after peak flow"),
             tags$li(strong("Climate & Land Use:"),
-                   "Köppen-Geiger classification, precipitation, land cover")
+                   "Köppen-Geiger classification, precipitation, snow fraction, land cover")
           )
-        )
-      )
-    )
-  ),
-
-  # Maps Tab
-  tabPanel("Site Maps",
-    fluidPage(
-      h2("Study Sites Across North America"),
-      br(),
-      fluidRow(
-        column(3,
-          wellPanel(
-            h4("Map Controls"),
-            checkboxGroupInput("map_lter", "LTER Sites:",
-                             choices = NULL,
-                             selected = NULL),
-            checkboxInput("map_show_complete", "Show only complete data sites",
-                         value = TRUE)
-          )
-        ),
-        column(9,
-          leafletOutput("site_map", height = 600)
         )
       )
     )
   ),
 
   # Activity 1 Tab
-  tabPanel("Activity 1: Hydrographs & Flashiness",
-    fluidPage(
-      h2("Exploring Discharge Patterns and Flashiness"),
-      br(),
+  nav_panel(
+    "Activity 1: Hydrographs & Flashiness",
+    layout_sidebar(
+      sidebar = sidebar(
+        width = 300,
+        h4("Site Selection"),
+        selectInput("activity1_lter", "LTER:",
+                   choices = NULL),
+        selectInput("activity1_sites", "Sites (select up to 5):",
+                   choices = NULL,
+                   multiple = TRUE),
+        p("Select up to 5 sites to compare in the hydrograph",
+          style = "font-size: 0.85em; color: #666; margin-top: -8px;"),
+        hr(),
+        h4("Snow Fraction Filter"),
+        sliderInput("snow_fraction", "Maximum Snow Days:",
+                   min = 0, max = 365, value = 365, step = 10),
+        hr(),
+        h4("RCS vs RBI Plot Options"),
+        selectInput("rcs_rbi_color", "Color by:",
+                   choices = c("Land Use" = "major_land",
+                             "Snow Fraction" = "snow_fraction",
+                             "Mean Annual Precip" = "mean_annual_precip",
+                             "Climate Zone" = "ClimateZ"),
+                   selected = "major_land")
+      ),
 
-      fluidRow(
-        column(3,
-          wellPanel(
-            h4("Site Selection"),
-            selectInput("activity1_lter", "LTER:",
-                       choices = NULL),
-            selectInput("activity1_sites", "Sites (select up to 5):",
-                       choices = NULL,
-                       multiple = TRUE),
-            br(),
-            h4("Snow Fraction Filter"),
-            sliderInput("snow_fraction", "Maximum Snow Days:",
-                       min = 0, max = 365, value = 365, step = 10)
+      navset_card_tab(
+        nav_panel("Hydrographs",
+          card(
+            full_screen = TRUE,
+            card_header("Discharge Time Series"),
+            plotlyOutput("hydrograph_plot", height = 600)
           )
         ),
-        column(9,
-          tabsetPanel(
-            tabPanel("Hydrographs",
-              plotlyOutput("hydrograph_plot", height = 500)
-            ),
-            tabPanel("RCS vs RBI",
-              fluidRow(
-                column(12,
-                  selectInput("rcs_rbi_color", "Color by:",
-                             choices = c("Land Use" = "major_land",
-                                       "Snow Fraction" = "snow_fraction",
-                                       "Mean Annual Precip" = "mean_annual_precip",
-                                       "Climate Zone" = "ClimateZ"),
-                             selected = "major_land")
-                )
-              ),
-              plotlyOutput("rcs_rbi_plot", height = 500)
-            )
+        nav_panel("RCS vs RBI",
+          card(
+            full_screen = TRUE,
+            card_header("Recession Curve Slope vs Richards-Baker Flashiness Index"),
+            plotlyOutput("rcs_rbi_plot", height = 600)
           )
         )
       )
@@ -184,13 +267,26 @@ server <- function(input, output, session) {
       filter(LTER %in% input$map_lter) %>%
       filter(!is.na(Latitude), !is.na(Longitude))
 
+    # Earth-toned color palette for LTER sites
+    lter_colors <- c(
+      "#6b9bd1", "#7fb069", "#d67e7e", "#e6c79c", "#5a7fa8",
+      "#8b9f7a", "#e8a083", "#c96e6e", "#d4a574", "#7cadd8",
+      "#6fa85b", "#eeb394", "#ddb785", "#f2c2a7", "#e08585"
+    )
+
+    pal <- colorFactor(lter_colors, domain = map_data$LTER)
+
     leaflet(map_data) %>%
       addTiles() %>%
       addCircleMarkers(
         lng = ~Longitude,
         lat = ~Latitude,
-        radius = 5,
-        color = ~colorFactor("Set1", LTER)(LTER),
+        radius = 6,
+        fillColor = ~pal(LTER),
+        color = "#2d2926",
+        weight = 1,
+        opacity = 0.8,
+        fillOpacity = 0.7,
         popup = ~paste0("<b>", Stream_Name, "</b><br>",
                        "LTER: ", LTER, "<br>",
                        "RBI: ", round(RBI, 3), "<br>",
@@ -199,9 +295,10 @@ server <- function(input, output, session) {
         label = ~Stream_Name
       ) %>%
       addLegend("bottomright",
-               pal = colorFactor("Set1", map_data$LTER),
+               pal = pal,
                values = ~LTER,
-               title = "LTER")
+               title = "LTER",
+               opacity = 0.7)
   })
 
   # Hydrograph plot
@@ -215,13 +312,29 @@ server <- function(input, output, session) {
     plot_data <- discharge_data() %>%
       filter(Stream_Name %in% input$activity1_sites)
 
-    p <- ggplot(plot_data, aes(x = Date, y = Qcms, color = Stream_Name)) +
-      geom_line() +
-      labs(x = "Date", y = "Discharge (cms)", color = "Site") +
-      theme_minimal() +
-      theme(legend.position = "bottom")
+    # Earth-toned color palette for lines
+    line_colors <- c("#6b9bd1", "#7fb069", "#d67e7e", "#e6c79c", "#5a7fa8")
 
-    ggplotly(p)
+    p <- ggplot(plot_data, aes(x = Date, y = Qcms, color = Stream_Name)) +
+      geom_line(linewidth = 0.7, alpha = 0.8) +
+      labs(x = "Date", y = "Discharge (cms)", color = "Site") +
+      theme_minimal(base_family = "Work Sans") +
+      theme(
+        plot.background = element_rect(fill = "#fefcfb", color = NA),
+        panel.background = element_rect(fill = "#ffffff", color = NA),
+        panel.grid.major = element_line(color = "#d4e3f0", linewidth = 0.3),
+        panel.grid.minor = element_line(color = "#d4e3f0", linewidth = 0.15),
+        text = element_text(color = "#2d2926"),
+        axis.text = element_text(color = "#2d2926"),
+        legend.position = "bottom"
+      ) +
+      scale_color_manual(values = line_colors)
+
+    ggplotly(p) %>%
+      layout(
+        paper_bgcolor = "#fefcfb",
+        plot_bgcolor = "#ffffff"
+      )
   })
 
   # RCS vs RBI plot
@@ -232,14 +345,30 @@ server <- function(input, output, session) {
       filter(!is.na(RBI), !is.na(recession_slope))
 
     p <- ggplot(plot_data, aes(x = RBI, y = recession_slope,
-                               color = .data[[input$rcs_rbi_color]])) +
+                               color = .data[[input$rcs_rbi_color]],
+                               text = paste0("Site: ", Stream_Name, "<br>",
+                                           "RBI: ", round(RBI, 3), "<br>",
+                                           "RCS: ", round(recession_slope, 3)))) +
       geom_point(size = 3, alpha = 0.7) +
       labs(x = "Richards-Baker Flashiness Index (RBI)",
            y = "Recession Curve Slope (RCS)",
-           color = input$rcs_rbi_color) +
-      theme_minimal()
+           color = gsub("_", " ", input$rcs_rbi_color)) +
+      theme_minimal(base_family = "Work Sans") +
+      theme(
+        plot.background = element_rect(fill = "#fefcfb", color = NA),
+        panel.background = element_rect(fill = "#ffffff", color = NA),
+        panel.grid.major = element_line(color = "#d4e3f0", linewidth = 0.3),
+        panel.grid.minor = element_line(color = "#d4e3f0", linewidth = 0.15),
+        text = element_text(color = "#2d2926"),
+        axis.text = element_text(color = "#2d2926")
+      ) +
+      scale_color_viridis_d(option = "viridis", begin = 0.2, end = 0.9)
 
-    ggplotly(p)
+    ggplotly(p, tooltip = "text") %>%
+      layout(
+        paper_bgcolor = "#fefcfb",
+        plot_bgcolor = "#ffffff"
+      )
   })
 }
 
