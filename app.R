@@ -109,7 +109,14 @@ ui <- page_navbar(
         tableOutput("overview_table"),
         hr(),
         h4("Map Controls"),
-        checkboxGroupInput("map_lter", "LTER Sites:",
+        selectInput("map_color_by", "Color sites by:",
+                   choices = c("Climate Zone" = "ClimateZ",
+                             "Snow Fraction" = "snow_fraction",
+                             "RBI (Flashiness)" = "RBI",
+                             "Major Land Use" = "major_land",
+                             "LTER Network" = "LTER"),
+                   selected = "ClimateZ"),
+        checkboxGroupInput("map_lter", "Filter by LTER:",
                          choices = NULL,
                          selected = NULL),
         checkboxInput("map_show_complete", "Show only complete data sites",
@@ -261,20 +268,40 @@ server <- function(input, output, session) {
 
   # Site map
   output$site_map <- renderLeaflet({
-    req(input$map_lter)
+    req(input$map_lter, input$map_color_by)
 
     map_data <- harmonized_complete() %>%
       filter(LTER %in% input$map_lter) %>%
       filter(!is.na(Latitude), !is.na(Longitude))
 
-    # Earth-toned color palette for LTER sites
-    lter_colors <- c(
-      "#6b9bd1", "#7fb069", "#d67e7e", "#e6c79c", "#5a7fa8",
-      "#8b9f7a", "#e8a083", "#c96e6e", "#d4a574", "#7cadd8",
-      "#6fa85b", "#eeb394", "#ddb785", "#f2c2a7", "#e08585"
+    # High-contrast distinguishable color palette
+    distinct_colors <- c(
+      "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+      "#ffff33", "#a65628", "#f781bf", "#66c2a5", "#fc8d62",
+      "#8da0cb", "#e78ac3", "#a6d854", "#ffd92f", "#e5c494",
+      "#b3b3b3", "#1b9e77", "#d95f02", "#7570b3", "#e7298a"
     )
 
-    pal <- colorFactor(lter_colors, domain = map_data$LTER)
+    # Create color palette based on selected variable
+    color_var <- map_data[[input$map_color_by]]
+
+    if (input$map_color_by %in% c("RBI", "snow_fraction")) {
+      # Numeric variables - use continuous color scale
+      pal <- colorNumeric(
+        palette = c("#d67e7e", "#e6c79c", "#7fb069", "#6b9bd1", "#5a7fa8"),
+        domain = color_var,
+        na.color = "#cccccc"
+      )
+      legend_title <- gsub("_", " ", input$map_color_by)
+    } else {
+      # Categorical variables - use factor colors
+      pal <- colorFactor(
+        palette = distinct_colors,
+        domain = color_var,
+        na.color = "#cccccc"
+      )
+      legend_title <- gsub("_", " ", input$map_color_by)
+    }
 
     leaflet(map_data) %>%
       addTiles() %>%
@@ -282,7 +309,7 @@ server <- function(input, output, session) {
         lng = ~Longitude,
         lat = ~Latitude,
         radius = 6,
-        fillColor = ~pal(LTER),
+        fillColor = ~pal(color_var),
         color = "#2d2926",
         weight = 1,
         opacity = 0.8,
@@ -291,13 +318,15 @@ server <- function(input, output, session) {
                        "LTER: ", LTER, "<br>",
                        "RBI: ", round(RBI, 3), "<br>",
                        "RCS: ", round(recession_slope, 3), "<br>",
-                       "Climate: ", ClimateZ),
+                       "Climate: ", ClimateZ, "<br>",
+                       "Snow Fraction: ", round(snow_fraction, 3), "<br>",
+                       "Mean Annual Precip: ", round(mean_annual_precip, 1), " mm"),
         label = ~Stream_Name
       ) %>%
       addLegend("bottomright",
                pal = pal,
-               values = ~LTER,
-               title = "LTER",
+               values = color_var,
+               title = legend_title,
                opacity = 0.7)
   })
 
