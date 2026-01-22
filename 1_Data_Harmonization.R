@@ -182,6 +182,15 @@ harmonized_data <- harmonized_data %>%
 harmonized_data <- harmonized_data %>%
   left_join(lulc_avg, by = "Stream_Name")
 
+# Filter to sites within North America (exclude Russian GRO sites)
+# North America bounds: Longitude -170 to -50, Latitude 15 to 85
+# This includes US, Canada, Alaska, Puerto Rico, and other US territories
+harmonized_data <- harmonized_data %>%
+  filter(
+    is.na(Longitude) | (Longitude >= -170 & Longitude <= -50),
+    is.na(Latitude) | (Latitude >= 15 & Latitude <= 85)
+  )
+
 # Save harmonized dataset
 output_file <- file.path(data_path, "harmonized_north_america_partial.csv")
 write.csv(harmonized_data, output_file, row.names = FALSE)

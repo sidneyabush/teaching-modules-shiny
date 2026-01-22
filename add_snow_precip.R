@@ -33,11 +33,19 @@ snow_precip_data <- spatial_drivers_raw %>%
 
 harmonized_partial <- read.csv(file.path(data_path, "harmonized_north_america_partial.csv"),
                                stringsAsFactors = FALSE) %>%
-  left_join(snow_precip_data, by = "Stream_ID")
+  left_join(snow_precip_data, by = "Stream_ID") %>%
+  filter(
+    is.na(Longitude) | (Longitude >= -170 & Longitude <= -50),
+    is.na(Latitude) | (Latitude >= 15 & Latitude <= 85)
+  )
 
 harmonized_complete <- read.csv(file.path(data_path, "harmonized_north_america_complete.csv"),
                                 stringsAsFactors = FALSE) %>%
-  left_join(snow_precip_data, by = "Stream_ID")
+  left_join(snow_precip_data, by = "Stream_ID") %>%
+  filter(
+    is.na(Longitude) | (Longitude >= -170 & Longitude <= -50),
+    is.na(Latitude) | (Latitude >= 15 & Latitude <= 85)
+  )
 
 write.csv(harmonized_partial,
           file.path(data_path, "harmonized_north_america_partial.csv"),
