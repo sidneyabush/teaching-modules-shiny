@@ -124,15 +124,11 @@ ui <- page_navbar(
       ),
 
       layout_columns(
-        col_widths = c(12),
+        col_widths = c(8, 4),
         card(
           card_header("Study Sites Across North America"),
           leafletOutput("site_map", height = 600)
-        )
-      ),
-
-      layout_columns(
-        col_widths = c(12),
+        ),
         card(
           card_header("About This Module"),
           p("This interactive module explores river hydrology metrics and their relationship
