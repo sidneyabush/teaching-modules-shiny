@@ -158,24 +158,42 @@ ui <- page_navbar(
         p("Explore how snow affects river flashiness (RBI) and recession behavior (RCS)",
           style = "font-size: 0.9em; color: #666;"),
         hr(),
-        h4("RCS vs RBI Scatter Plot"),
-        p("This plot shows all sites colored by snow category. Low snow sites (red) vs high snow sites (blue).",
-          style = "font-size: 0.85em; color: #666;"),
-        checkboxGroupInput("show_snow_categories", "Show snow categories:",
-                          choices = c("Low (0-60 days)" = "Low (0-60 days)",
-                                    "Medium (60-180 days)" = "Medium (60-180 days)",
-                                    "High (180+ days)" = "High (180+ days)"),
-                          selected = c("Low (0-60 days)", "Medium (60-180 days)", "High (180+ days)")),
-        hr(),
-        h4("Hydrograph Site Selection"),
-        p("Select up to 5 sites to compare their discharge patterns. Try selecting sites from different snow categories.",
-          style = "font-size: 0.85em; color: #666;"),
-        selectInput("hydro_sites", "Select sites:",
-                   choices = NULL,
-                   multiple = TRUE)
+
+        # Controls for RCS vs RBI tab
+        conditionalPanel(
+          condition = "input.activity1_tab == 'RCS vs RBI by Snow'",
+          h4("Filter Scatter Plot"),
+          p("Show/hide snow categories on the plot:",
+            style = "font-size: 0.85em; color: #666;"),
+          checkboxGroupInput("show_snow_categories", "Display:",
+                            choices = c("Low (0-40 days)" = "Low (0-40 days)",
+                                      "Medium (40-80 days)" = "Medium (40-80 days)",
+                                      "High (80+ days)" = "High (80+ days)"),
+                            selected = c("Low (0-40 days)", "Medium (40-80 days)", "High (80+ days)"))
+        ),
+
+        # Controls for Hydrograph tab
+        conditionalPanel(
+          condition = "input.activity1_tab == 'Hydrographs'",
+          h4("Select Sites to Compare"),
+          p("Choose sites from different snow categories to compare their discharge patterns.",
+            style = "font-size: 0.85em; color: #666;"),
+          selectInput("low_snow_sites", "Low snow sites (0-40 days):",
+                     choices = NULL,
+                     multiple = TRUE),
+          selectInput("medium_snow_sites", "Medium snow sites (40-80 days):",
+                     choices = NULL,
+                     multiple = TRUE),
+          selectInput("high_snow_sites", "High snow sites (80+ days):",
+                     choices = NULL,
+                     multiple = TRUE),
+          p("Select up to 5 sites total across all categories",
+            style = "font-size: 0.85em; color: #d67e7e; margin-top: 8px;")
+        )
       ),
 
       navset_card_tab(
+        id = "activity1_tab",
         nav_panel("RCS vs RBI by Snow",
           card(
             full_screen = TRUE,
@@ -252,27 +270,52 @@ server <- function(input, output, session) {
       filter(!is.na(RBI), !is.na(recession_slope), !is.na(mean_snow_days)) %>%
       mutate(
         snow_cat = case_when(
-          mean_snow_days < 60 ~ "Low (0-60 days)",
-          mean_snow_days >= 60 & mean_snow_days < 180 ~ "Medium (60-180 days)",
-          mean_snow_days >= 180 ~ "High (180+ days)",
+          mean_snow_days < 40 ~ "Low (0-40 days)",
+          mean_snow_days >= 40 & mean_snow_days < 80 ~ "Medium (40-80 days)",
+          mean_snow_days >= 80 ~ "High (80+ days)",
           TRUE ~ "Unknown"
         ),
-        snow_cat = factor(snow_cat, levels = c("Low (0-60 days)", "Medium (60-180 days)", "High (180+ days)", "Unknown"))
+        snow_cat = factor(snow_cat, levels = c("Low (0-40 days)", "Medium (40-80 days)", "High (80+ days)", "Unknown"))
       )
   })
 
-  # Update site choices for hydrograph
+  # Update site choices for each snow category
   observe({
-    site_data <- harmonized_with_categories() %>%
-      arrange(snow_cat, Stream_Name)
+    site_data <- harmonized_with_categories()
 
-    site_choices <- setNames(
-      site_data$Stream_ID,
-      paste0(site_data$Stream_Name, " [", gsub(" \\(.*", "", site_data$snow_cat), " snow, ", site_data$LTER, "]")
+    # Low snow sites
+    low_sites <- site_data %>%
+      filter(snow_cat == "Low (0-40 days)") %>%
+      arrange(Stream_Name)
+
+    low_choices <- setNames(
+      low_sites$Stream_ID,
+      paste0(low_sites$Stream_Name, " [", low_sites$LTER, ", ", round(low_sites$mean_snow_days, 0), " days]")
     )
 
-    updateSelectInput(session, "hydro_sites",
-                     choices = site_choices)
+    # Medium snow sites
+    medium_sites <- site_data %>%
+      filter(snow_cat == "Medium (40-80 days)") %>%
+      arrange(Stream_Name)
+
+    medium_choices <- setNames(
+      medium_sites$Stream_ID,
+      paste0(medium_sites$Stream_Name, " [", medium_sites$LTER, ", ", round(medium_sites$mean_snow_days, 0), " days]")
+    )
+
+    # High snow sites
+    high_sites <- site_data %>%
+      filter(snow_cat == "High (80+ days)") %>%
+      arrange(Stream_Name)
+
+    high_choices <- setNames(
+      high_sites$Stream_ID,
+      paste0(high_sites$Stream_Name, " [", high_sites$LTER, ", ", round(high_sites$mean_snow_days, 0), " days]")
+    )
+
+    updateSelectInput(session, "low_snow_sites", choices = low_choices)
+    updateSelectInput(session, "medium_snow_sites", choices = medium_choices)
+    updateSelectInput(session, "high_snow_sites", choices = high_choices)
   })
 
   # Site map
@@ -341,26 +384,29 @@ server <- function(input, output, session) {
 
   # Hydrograph plot
   output$hydrograph_plot <- renderPlotly({
-    if (is.null(input$hydro_sites) || length(input$hydro_sites) == 0) {
+    # Combine all selected sites
+    all_selected <- c(input$low_snow_sites, input$medium_snow_sites, input$high_snow_sites)
+
+    if (is.null(all_selected) || length(all_selected) == 0) {
       return(plotly_empty() %>%
-        layout(title = list(text = "Select up to 5 sites to compare their discharge patterns",
+        layout(title = list(text = "Select sites from the dropdowns to compare discharge patterns",
                            font = list(color = "#666", size = 14))))
     }
 
-    if (length(input$hydro_sites) > 5) {
+    if (length(all_selected) > 5) {
       return(plotly_empty() %>%
-        layout(title = list(text = "Please select 5 or fewer sites",
+        layout(title = list(text = "Please select 5 or fewer sites total across all categories",
                            font = list(color = "#d67e7e", size = 14))))
     }
 
     # Get site info
     selected_sites <- harmonized_with_categories() %>%
-      filter(Stream_ID %in% input$hydro_sites) %>%
+      filter(Stream_ID %in% all_selected) %>%
       select(Stream_ID, Stream_Name, LTER, snow_cat, mean_snow_days)
 
     # Get discharge data
     plot_data <- discharge_data() %>%
-      filter(Stream_ID %in% input$hydro_sites) %>%
+      filter(Stream_ID %in% all_selected) %>%
       left_join(selected_sites, by = "Stream_ID") %>%
       mutate(site_label = paste0(Stream_Name, " (", gsub(" \\(.*", "", snow_cat), " snow)"))
 
@@ -372,9 +418,9 @@ server <- function(input, output, session) {
 
     # Colors matching snow categories
     snow_colors <- c(
-      "Low (0-60 days)" = "#d67e7e",
-      "Medium (60-180 days)" = "#e6c79c",
-      "High (180+ days)" = "#6b9bd1"
+      "Low (0-40 days)" = "#d67e7e",
+      "Medium (40-80 days)" = "#e6c79c",
+      "High (80+ days)" = "#6b9bd1"
     )
 
     # Assign colors based on snow category
@@ -440,9 +486,9 @@ server <- function(input, output, session) {
         axis.text = element_text(color = "#2d2926"),
         plot.title = element_text(size = 11, color = "#666", face = "italic")
       ) +
-      scale_color_manual(values = c("Low (0-60 days)" = "#d67e7e",
-                                    "Medium (60-180 days)" = "#e6c79c",
-                                    "High (180+ days)" = "#6b9bd1"))
+      scale_color_manual(values = c("Low (0-40 days)" = "#d67e7e",
+                                    "Medium (40-80 days)" = "#e6c79c",
+                                    "High (80+ days)" = "#6b9bd1"))
 
     ggplotly(p, tooltip = "text") %>%
       layout(
