@@ -154,41 +154,62 @@ ui <- page_navbar(
     layout_sidebar(
       sidebar = sidebar(
         width = 300,
+        h4("Filter Sites"),
+        selectInput("filter_by", "Filter sites by:",
+                   choices = c("Snow Fraction" = "snow",
+                             "Climate Zone" = "climate",
+                             "Land Use" = "landuse"),
+                   selected = "snow"),
+        conditionalPanel(
+          condition = "input.filter_by == 'snow'",
+          checkboxGroupInput("snow_category", "Snow categories:",
+                            choices = c("Low (0-60 days/year)" = "low",
+                                      "Medium (60-180 days/year)" = "medium",
+                                      "High (180+ days/year)" = "high"),
+                            selected = c("low", "medium", "high"))
+        ),
+        conditionalPanel(
+          condition = "input.filter_by == 'climate'",
+          checkboxGroupInput("climate_filter", "Climate zones:",
+                            choices = NULL,
+                            selected = NULL)
+        ),
+        conditionalPanel(
+          condition = "input.filter_by == 'landuse'",
+          checkboxGroupInput("landuse_filter", "Land use types:",
+                            choices = NULL,
+                            selected = NULL)
+        ),
+        hr(),
         h4("Site Selection"),
         selectInput("activity1_sites", "Select Sites (up to 5):",
                    choices = NULL,
                    multiple = TRUE),
-        p("Choose sites with varying snow fractions to compare",
+        p("Choose sites from different categories to compare",
           style = "font-size: 0.85em; color: #666; margin-top: -8px;"),
-        hr(),
-        h4("Filter Sites by Snow Category"),
-        checkboxGroupInput("snow_category", "Show sites with:",
-                          choices = c("Low Snow (0-60 days)" = "low",
-                                    "Medium Snow (60-180 days)" = "medium",
-                                    "High Snow (180+ days)" = "high"),
-                          selected = c("low", "medium", "high")),
         hr(),
         h4("RCS vs RBI Plot Options"),
         selectInput("rcs_rbi_color", "Color by:",
-                   choices = c("Snow Fraction" = "snow_fraction",
+                   choices = c("Snow Category" = "snow_cat",
+                             "Snow Fraction" = "snow_fraction",
+                             "Climate Zone" = "ClimateZ",
                              "Land Use" = "major_land",
-                             "Mean Annual Precip" = "mean_annual_precip",
-                             "Climate Zone" = "ClimateZ"),
-                   selected = "snow_fraction")
+                             "Mean Annual Precip" = "mean_annual_precip"),
+                   selected = "snow_cat")
       ),
 
       navset_card_tab(
         nav_panel("Hydrographs",
           card(
             full_screen = TRUE,
-            card_header("Discharge Time Series"),
+            card_header("Discharge Time Series - Compare Sites with Different Snow Influence"),
             plotlyOutput("hydrograph_plot", height = 600)
           )
         ),
         nav_panel("RCS vs RBI",
           card(
             full_screen = TRUE,
-            card_header("Recession Curve Slope vs Richards-Baker Flashiness Index"),
+            card_header("Recession Curve Slope vs Flashiness Index"),
             plotlyOutput("rcs_rbi_plot", height = 600)
           )
         )
@@ -248,33 +269,104 @@ server <- function(input, output, session) {
                             selected = lter_choices)
   })
 
-  # Filtered sites based on snow category
-  filtered_sites <- reactive({
-    req(input$snow_category)
+  # Update climate filter choices
+  observe({
+    climate_zones <- harmonized_complete() %>%
+      filter(!is.na(ClimateZ)) %>%
+      pull(ClimateZ) %>%
+      unique() %>%
+      sort()
 
-    harmonized_complete() %>%
-      filter(!is.na(snow_fraction), !is.na(mean_snow_days)) %>%
-      mutate(
-        snow_cat = case_when(
-          mean_snow_days < 60 ~ "low",
-          mean_snow_days >= 60 & mean_snow_days < 180 ~ "medium",
-          mean_snow_days >= 180 ~ "high",
-          TRUE ~ NA_character_
-        )
-      ) %>%
-      filter(snow_cat %in% input$snow_category) %>%
-      arrange(Stream_Name)
+    updateCheckboxGroupInput(session, "climate_filter",
+                            choices = climate_zones,
+                            selected = climate_zones)
   })
 
-  # Update site choices based on snow category filter
+  # Update land use filter choices
+  observe({
+    landuse_types <- harmonized_complete() %>%
+      filter(!is.na(major_land)) %>%
+      pull(major_land) %>%
+      unique() %>%
+      sort()
+
+    updateCheckboxGroupInput(session, "landuse_filter",
+                            choices = landuse_types,
+                            selected = landuse_types)
+  })
+
+  # Add snow category to harmonized data
+  harmonized_with_categories <- reactive({
+    harmonized_complete() %>%
+      filter(!is.na(RBI), !is.na(recession_slope)) %>%
+      mutate(
+        snow_cat = case_when(
+          is.na(mean_snow_days) ~ "Unknown",
+          mean_snow_days < 60 ~ "Low (0-60 days)",
+          mean_snow_days >= 60 & mean_snow_days < 180 ~ "Medium (60-180 days)",
+          mean_snow_days >= 180 ~ "High (180+ days)",
+          TRUE ~ "Unknown"
+        ),
+        snow_cat = factor(snow_cat, levels = c("Low (0-60 days)", "Medium (60-180 days)", "High (180+ days)", "Unknown"))
+      )
+  })
+
+  # Filtered sites based on selected filter type
+  filtered_sites <- reactive({
+    req(input$filter_by)
+
+    data <- harmonized_with_categories()
+
+    if (input$filter_by == "snow") {
+      req(input$snow_category)
+
+      data <- data %>%
+        filter(
+          (snow_cat == "Low (0-60 days)" & "low" %in% input$snow_category) |
+          (snow_cat == "Medium (60-180 days)" & "medium" %in% input$snow_category) |
+          (snow_cat == "High (180+ days)" & "high" %in% input$snow_category)
+        )
+
+    } else if (input$filter_by == "climate") {
+      req(input$climate_filter)
+      data <- data %>% filter(ClimateZ %in% input$climate_filter)
+
+    } else if (input$filter_by == "landuse") {
+      req(input$landuse_filter)
+      data <- data %>% filter(major_land %in% input$landuse_filter)
+    }
+
+    data
+  })
+
+  # Update site choices based on filters
   observe({
     req(filtered_sites())
 
-    site_choices <- filtered_sites() %>%
-      mutate(
-        label = paste0(Stream_Name, " (", LTER, ", ", round(mean_snow_days, 0), " snow days)")
-      ) %>%
-      pull(label, name = Stream_Name)
+    if (input$filter_by == "snow") {
+      site_choices <- filtered_sites() %>%
+        arrange(snow_cat, Stream_Name) %>%
+        mutate(
+          label = paste0(Stream_Name, " [", gsub(" \\(.*", "", snow_cat), ", ", LTER, "]")
+        ) %>%
+        pull(label, name = Stream_ID)
+
+    } else if (input$filter_by == "climate") {
+      site_choices <- filtered_sites() %>%
+        arrange(ClimateZ, Stream_Name) %>%
+        mutate(
+          label = paste0(Stream_Name, " [", ClimateZ, ", ", LTER, "]")
+        ) %>%
+        pull(label, name = Stream_ID)
+
+    } else {
+      site_choices <- filtered_sites() %>%
+        arrange(major_land, Stream_Name) %>%
+        mutate(
+          label = paste0(Stream_Name, " [", major_land, ", ", LTER, "]")
+        ) %>%
+        pull(label, name = Stream_ID)
+    }
 
     updateSelectInput(session, "activity1_sites",
                      choices = site_choices)
@@ -360,8 +452,16 @@ server <- function(input, output, session) {
                            font = list(color = "#d67e7e"))))
     }
 
+    # Get site info for selected Stream_IDs
+    selected_sites <- harmonized_with_categories() %>%
+      filter(Stream_ID %in% input$activity1_sites) %>%
+      select(Stream_ID, Stream_Name, LTER, snow_cat)
+
+    # Filter discharge data by Stream_ID
     plot_data <- discharge_data() %>%
-      filter(Stream_Name %in% input$activity1_sites)
+      filter(Stream_ID %in% input$activity1_sites) %>%
+      left_join(selected_sites, by = "Stream_ID") %>%
+      mutate(site_label = paste0(Stream_Name, " (", gsub(" \\(.*", "", snow_cat), ")"))
 
     if (nrow(plot_data) == 0) {
       return(plotly_empty() %>%
@@ -372,7 +472,7 @@ server <- function(input, output, session) {
     # Earth-toned color palette for lines
     line_colors <- c("#6b9bd1", "#7fb069", "#d67e7e", "#e6c79c", "#5a7fa8")
 
-    p <- ggplot(plot_data, aes(x = Date, y = Qcms, color = Stream_Name)) +
+    p <- ggplot(plot_data, aes(x = Date, y = Qcms, color = site_label)) +
       geom_line(linewidth = 0.7, alpha = 0.8) +
       labs(x = "Date", y = "Discharge (cms)", color = "Site") +
       theme_minimal(base_family = "Work Sans") +
@@ -385,7 +485,7 @@ server <- function(input, output, session) {
         axis.text = element_text(color = "#2d2926"),
         legend.position = "bottom"
       ) +
-      scale_color_manual(values = line_colors[1:length(input$activity1_sites)])
+      scale_color_manual(values = line_colors[1:length(unique(plot_data$site_label))])
 
     ggplotly(p) %>%
       layout(
@@ -397,14 +497,13 @@ server <- function(input, output, session) {
 
   # RCS vs RBI plot
   output$rcs_rbi_plot <- renderPlotly({
-    req(input$rcs_rbi_color, input$snow_category)
+    req(input$rcs_rbi_color)
 
-    plot_data <- filtered_sites() %>%
-      filter(!is.na(RBI), !is.na(recession_slope))
+    plot_data <- filtered_sites()
 
     if (nrow(plot_data) == 0) {
       return(plotly_empty() %>%
-        layout(title = list(text = "No sites with complete RBI and RCS data in selected snow categories",
+        layout(title = list(text = "No sites match the selected filters",
                            font = list(color = "#666"))))
     }
 
@@ -414,9 +513,9 @@ server <- function(input, output, session) {
                                  color = .data[[input$rcs_rbi_color]],
                                  text = paste0("Site: ", Stream_Name, "<br>",
                                              "LTER: ", LTER, "<br>",
+                                             "Snow: ", snow_cat, "<br>",
                                              "RBI: ", round(RBI, 3), "<br>",
-                                             "RCS: ", round(recession_slope, 3), "<br>",
-                                             "Snow Days: ", round(mean_snow_days, 0)))) +
+                                             "RCS: ", round(recession_slope, 3)))) +
         geom_point(size = 3, alpha = 0.7) +
         labs(x = "Richards-Baker Flashiness Index (RBI)",
              y = "Recession Curve Slope (RCS)",
@@ -431,14 +530,40 @@ server <- function(input, output, session) {
           axis.text = element_text(color = "#2d2926")
         ) +
         scale_color_gradientn(colors = c("#d67e7e", "#e6c79c", "#7fb069", "#6b9bd1", "#5a7fa8"))
+    } else if (input$rcs_rbi_color == "snow_cat") {
+      # Special colors for snow categories
+      p <- ggplot(plot_data, aes(x = RBI, y = recession_slope,
+                                 color = snow_cat,
+                                 text = paste0("Site: ", Stream_Name, "<br>",
+                                             "LTER: ", LTER, "<br>",
+                                             "Snow: ", snow_cat, "<br>",
+                                             "RBI: ", round(RBI, 3), "<br>",
+                                             "RCS: ", round(recession_slope, 3)))) +
+        geom_point(size = 3, alpha = 0.7) +
+        labs(x = "Richards-Baker Flashiness Index (RBI)",
+             y = "Recession Curve Slope (RCS)",
+             color = "Snow Category") +
+        theme_minimal(base_family = "Work Sans") +
+        theme(
+          plot.background = element_rect(fill = "#fefcfb", color = NA),
+          panel.background = element_rect(fill = "#ffffff", color = NA),
+          panel.grid.major = element_line(color = "#d4e3f0", linewidth = 0.3),
+          panel.grid.minor = element_line(color = "#d4e3f0", linewidth = 0.15),
+          text = element_text(color = "#2d2926"),
+          axis.text = element_text(color = "#2d2926")
+        ) +
+        scale_color_manual(values = c("Low (0-60 days)" = "#d67e7e",
+                                     "Medium (60-180 days)" = "#e6c79c",
+                                     "High (180+ days)" = "#6b9bd1",
+                                     "Unknown" = "#999999"))
     } else {
       p <- ggplot(plot_data, aes(x = RBI, y = recession_slope,
                                  color = .data[[input$rcs_rbi_color]],
                                  text = paste0("Site: ", Stream_Name, "<br>",
                                              "LTER: ", LTER, "<br>",
+                                             "Snow: ", snow_cat, "<br>",
                                              "RBI: ", round(RBI, 3), "<br>",
-                                             "RCS: ", round(recession_slope, 3), "<br>",
-                                             "Snow Days: ", round(mean_snow_days, 0)))) +
+                                             "RCS: ", round(recession_slope, 3)))) +
         geom_point(size = 3, alpha = 0.7) +
         labs(x = "Richards-Baker Flashiness Index (RBI)",
              y = "Recession Curve Slope (RCS)",

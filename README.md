@@ -7,7 +7,7 @@ Interactive Shiny application for teaching modules.
 ### 1. Install Required Packages
 
 ```r
-install.packages(c("shiny", "bslib", "googledrive", "dplyr", "ggplot2", "leaflet", "plotly"))
+install.packages(c("shiny", "bslib", "googledrive", "dplyr", "ggplot2", "leaflet", "plotly", "viridis"))
 ```
 
 ### 2. Download Data from Google Drive
