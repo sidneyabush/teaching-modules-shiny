@@ -5,7 +5,7 @@ suppressPackageStartupMessages({
     options(repos = c(CRAN = "https://cloud.r-project.org"))
     install.packages("librarian")
   }
-  librarian::shelf(shiny, bslib, dplyr, ggplot2, leaflet, plotly)
+  librarian::shelf(shiny, bslib, dplyr, ggplot2, leaflet, plotly, viridis)
 })
 
 data_path <- "/Users/sidneybush/Library/CloudStorage/Box-Box/Sidney_Bush/CUAHSI-teaching-modules-shiny/data"
@@ -155,25 +155,26 @@ ui <- page_navbar(
       sidebar = sidebar(
         width = 300,
         h4("Site Selection"),
-        selectInput("activity1_lter", "LTER:",
-                   choices = NULL),
-        selectInput("activity1_sites", "Sites (select up to 5):",
+        selectInput("activity1_sites", "Select Sites (up to 5):",
                    choices = NULL,
                    multiple = TRUE),
-        p("Select up to 5 sites to compare in the hydrograph",
+        p("Choose sites with varying snow fractions to compare",
           style = "font-size: 0.85em; color: #666; margin-top: -8px;"),
         hr(),
-        h4("Snow Fraction Filter"),
-        sliderInput("snow_fraction", "Maximum Snow Days:",
-                   min = 0, max = 365, value = 365, step = 10),
+        h4("Filter Sites by Snow Category"),
+        checkboxGroupInput("snow_category", "Show sites with:",
+                          choices = c("Low Snow (0-60 days)" = "low",
+                                    "Medium Snow (60-180 days)" = "medium",
+                                    "High Snow (180+ days)" = "high"),
+                          selected = c("low", "medium", "high")),
         hr(),
         h4("RCS vs RBI Plot Options"),
         selectInput("rcs_rbi_color", "Color by:",
-                   choices = c("Land Use" = "major_land",
-                             "Snow Fraction" = "snow_fraction",
+                   choices = c("Snow Fraction" = "snow_fraction",
+                             "Land Use" = "major_land",
                              "Mean Annual Precip" = "mean_annual_precip",
                              "Climate Zone" = "ClimateZ"),
-                   selected = "major_land")
+                   selected = "snow_fraction")
       ),
 
       navset_card_tab(
@@ -211,8 +212,16 @@ server <- function(input, output, session) {
   })
 
   discharge_data <- reactive({
+    # Get list of North American LTER sites from harmonized data
+    na_lter <- c("Canada", "USGS", "AND", "ARC", "BcCZO", "BNZ", "ColoradoAlpine",
+                 "CZO-Catalina Jemez", "Catalina Jemez", "EastRiverSFA", "GRO", "HBR",
+                 "Ipswitch(Carey)", "KNZ", "LMP", "LMP(Wymore)", "LUQ", "NWT", "PIE",
+                 "Sagehen", "Sagehen(Sullivan)", "UMR", "UMR(Jankowski)",
+                 "WalkerBranch", "Walker Branch")
+
     read.csv(file.path(data_path, "20260106_masterdata_discharge.csv"),
              stringsAsFactors = FALSE) %>%
+      filter(LTER %in% na_lter) %>%
       mutate(Date = as.Date(Date),
              Stream_ID = paste(LTER, Stream_Name, sep = "_"))
   })
@@ -239,27 +248,36 @@ server <- function(input, output, session) {
                             selected = lter_choices)
   })
 
-  # Update LTER choices for Activity 1
-  observe({
-    lter_choices <- sort(unique(harmonized_complete()$LTER))
-    updateSelectInput(session, "activity1_lter",
-                     choices = c("All" = "all", lter_choices))
+  # Filtered sites based on snow category
+  filtered_sites <- reactive({
+    req(input$snow_category)
+
+    harmonized_complete() %>%
+      filter(!is.na(snow_fraction), !is.na(mean_snow_days)) %>%
+      mutate(
+        snow_cat = case_when(
+          mean_snow_days < 60 ~ "low",
+          mean_snow_days >= 60 & mean_snow_days < 180 ~ "medium",
+          mean_snow_days >= 180 ~ "high",
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      filter(snow_cat %in% input$snow_category) %>%
+      arrange(Stream_Name)
   })
 
-  # Update site choices when LTER changes
+  # Update site choices based on snow category filter
   observe({
-    req(input$activity1_lter)
+    req(filtered_sites())
 
-    if (input$activity1_lter == "all") {
-      sites <- harmonized_complete()$Stream_Name
-    } else {
-      sites <- harmonized_complete() %>%
-        filter(LTER == input$activity1_lter) %>%
-        pull(Stream_Name)
-    }
+    site_choices <- filtered_sites() %>%
+      mutate(
+        label = paste0(Stream_Name, " (", LTER, ", ", round(mean_snow_days, 0), " snow days)")
+      ) %>%
+      pull(label, name = Stream_Name)
 
     updateSelectInput(session, "activity1_sites",
-                     choices = sort(unique(sites)))
+                     choices = site_choices)
   })
 
   # Site map
@@ -330,12 +348,26 @@ server <- function(input, output, session) {
   output$hydrograph_plot <- renderPlotly({
     req(input$activity1_sites)
 
+    if (length(input$activity1_sites) == 0) {
+      return(plotly_empty() %>%
+        layout(title = list(text = "Select up to 5 sites to view hydrographs",
+                           font = list(color = "#666"))))
+    }
+
     if (length(input$activity1_sites) > 5) {
-      return(NULL)
+      return(plotly_empty() %>%
+        layout(title = list(text = "Please select 5 or fewer sites",
+                           font = list(color = "#d67e7e"))))
     }
 
     plot_data <- discharge_data() %>%
       filter(Stream_Name %in% input$activity1_sites)
+
+    if (nrow(plot_data) == 0) {
+      return(plotly_empty() %>%
+        layout(title = list(text = "No discharge data available for selected sites",
+                           font = list(color = "#666"))))
+    }
 
     # Earth-toned color palette for lines
     line_colors <- c("#6b9bd1", "#7fb069", "#d67e7e", "#e6c79c", "#5a7fa8")
@@ -353,41 +385,75 @@ server <- function(input, output, session) {
         axis.text = element_text(color = "#2d2926"),
         legend.position = "bottom"
       ) +
-      scale_color_manual(values = line_colors)
+      scale_color_manual(values = line_colors[1:length(input$activity1_sites)])
 
     ggplotly(p) %>%
       layout(
         paper_bgcolor = "#fefcfb",
-        plot_bgcolor = "#ffffff"
+        plot_bgcolor = "#ffffff",
+        legend = list(orientation = "h", y = -0.2)
       )
   })
 
   # RCS vs RBI plot
   output$rcs_rbi_plot <- renderPlotly({
-    req(input$rcs_rbi_color)
+    req(input$rcs_rbi_color, input$snow_category)
 
-    plot_data <- harmonized_complete() %>%
+    plot_data <- filtered_sites() %>%
       filter(!is.na(RBI), !is.na(recession_slope))
 
-    p <- ggplot(plot_data, aes(x = RBI, y = recession_slope,
-                               color = .data[[input$rcs_rbi_color]],
-                               text = paste0("Site: ", Stream_Name, "<br>",
-                                           "RBI: ", round(RBI, 3), "<br>",
-                                           "RCS: ", round(recession_slope, 3)))) +
-      geom_point(size = 3, alpha = 0.7) +
-      labs(x = "Richards-Baker Flashiness Index (RBI)",
-           y = "Recession Curve Slope (RCS)",
-           color = gsub("_", " ", input$rcs_rbi_color)) +
-      theme_minimal(base_family = "Work Sans") +
-      theme(
-        plot.background = element_rect(fill = "#fefcfb", color = NA),
-        panel.background = element_rect(fill = "#ffffff", color = NA),
-        panel.grid.major = element_line(color = "#d4e3f0", linewidth = 0.3),
-        panel.grid.minor = element_line(color = "#d4e3f0", linewidth = 0.15),
-        text = element_text(color = "#2d2926"),
-        axis.text = element_text(color = "#2d2926")
-      ) +
-      scale_color_viridis_d(option = "viridis", begin = 0.2, end = 0.9)
+    if (nrow(plot_data) == 0) {
+      return(plotly_empty() %>%
+        layout(title = list(text = "No sites with complete RBI and RCS data in selected snow categories",
+                           font = list(color = "#666"))))
+    }
+
+    # Use different color scales for numeric vs categorical
+    if (input$rcs_rbi_color %in% c("snow_fraction", "mean_annual_precip")) {
+      p <- ggplot(plot_data, aes(x = RBI, y = recession_slope,
+                                 color = .data[[input$rcs_rbi_color]],
+                                 text = paste0("Site: ", Stream_Name, "<br>",
+                                             "LTER: ", LTER, "<br>",
+                                             "RBI: ", round(RBI, 3), "<br>",
+                                             "RCS: ", round(recession_slope, 3), "<br>",
+                                             "Snow Days: ", round(mean_snow_days, 0)))) +
+        geom_point(size = 3, alpha = 0.7) +
+        labs(x = "Richards-Baker Flashiness Index (RBI)",
+             y = "Recession Curve Slope (RCS)",
+             color = gsub("_", " ", input$rcs_rbi_color)) +
+        theme_minimal(base_family = "Work Sans") +
+        theme(
+          plot.background = element_rect(fill = "#fefcfb", color = NA),
+          panel.background = element_rect(fill = "#ffffff", color = NA),
+          panel.grid.major = element_line(color = "#d4e3f0", linewidth = 0.3),
+          panel.grid.minor = element_line(color = "#d4e3f0", linewidth = 0.15),
+          text = element_text(color = "#2d2926"),
+          axis.text = element_text(color = "#2d2926")
+        ) +
+        scale_color_gradientn(colors = c("#d67e7e", "#e6c79c", "#7fb069", "#6b9bd1", "#5a7fa8"))
+    } else {
+      p <- ggplot(plot_data, aes(x = RBI, y = recession_slope,
+                                 color = .data[[input$rcs_rbi_color]],
+                                 text = paste0("Site: ", Stream_Name, "<br>",
+                                             "LTER: ", LTER, "<br>",
+                                             "RBI: ", round(RBI, 3), "<br>",
+                                             "RCS: ", round(recession_slope, 3), "<br>",
+                                             "Snow Days: ", round(mean_snow_days, 0)))) +
+        geom_point(size = 3, alpha = 0.7) +
+        labs(x = "Richards-Baker Flashiness Index (RBI)",
+             y = "Recession Curve Slope (RCS)",
+             color = gsub("_", " ", input$rcs_rbi_color)) +
+        theme_minimal(base_family = "Work Sans") +
+        theme(
+          plot.background = element_rect(fill = "#fefcfb", color = NA),
+          panel.background = element_rect(fill = "#ffffff", color = NA),
+          panel.grid.major = element_line(color = "#d4e3f0", linewidth = 0.3),
+          panel.grid.minor = element_line(color = "#d4e3f0", linewidth = 0.15),
+          text = element_text(color = "#2d2926"),
+          axis.text = element_text(color = "#2d2926")
+        ) +
+        scale_color_viridis_d(option = "viridis", begin = 0.2, end = 0.9)
+    }
 
     ggplotly(p, tooltip = "text") %>%
       layout(
